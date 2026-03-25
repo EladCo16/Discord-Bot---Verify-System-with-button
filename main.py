@@ -1,14 +1,16 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 from flask import Flask
 from threading import Thread
 import os
+from datetime import datetime
 
 # ================= CONFIG =================
 
-TOKEN = os.getenv("TOKEN") or "YOUR_TOKEN_HERE"
-VERIFY_ROLE_ID = int(os.getenv("VERIFY_ROLE_ID") or 1486195995548188843)
+TOKEN = os.getenv("TOKEN")
+VERIFY_ROLE_ID = int(os.getenv("VERIFY_ROLE_ID", 1486195995548188843))
+WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", 1486262603792650331))
 
 # ================= KEEP ALIVE =================
 
@@ -22,8 +24,7 @@ def run():
     app.run(host='0.0.0.0', port=10000)
 
 def keep_alive():
-    t = Thread(target=run)
-    t.start()
+    Thread(target=run).start()
 
 # ================= BOT =================
 
@@ -32,6 +33,21 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
+
+# ================= STATUS LOOP =================
+
+@tasks.loop(seconds=30)
+async def update_status():
+    total = 0
+    for guild in bot.guilds:
+        total += sum(1 for m in guild.members if not m.bot)
+
+    await bot.change_presence(
+        activity=discord.Activity(
+            type=discord.ActivityType.watching,
+            name=f"{total} members 👀"
+        )
+    )
 
 # ================= VIEW =================
 
@@ -51,30 +67,20 @@ class VerifyView(discord.ui.View):
 
         if role:
             if role in interaction.user.roles:
-                await interaction.response.send_message(
-                    "כבר מאומת 😎",
-                    ephemeral=True
-                )
+                await interaction.response.send_message("כבר מאומת 😎", ephemeral=True)
                 return
 
             await interaction.user.add_roles(role)
 
-        await interaction.response.send_message(
-            "אומתת בהצלחה ✅",
-            ephemeral=True
-        )
+        await interaction.response.send_message("אומתת בהצלחה ✅", ephemeral=True)
 
 # ================= COMMAND =================
 
 @tree.command(name="verifypanel", description="יוצר פאנל אימות")
 async def verifypanel(interaction: discord.Interaction):
 
-    # ✅ רק אדמין
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            "❌ רק אדמין יכול להשתמש בזה",
-            ephemeral=True
-        )
+        await interaction.response.send_message("❌ רק אדמין יכול להשתמש בזה", ephemeral=True)
         return
 
     embed = discord.Embed(
@@ -85,24 +91,63 @@ async def verifypanel(interaction: discord.Interaction):
 
     embed.set_footer(
         text="שוויוניזם בע\"מ",
-        icon_url="https://cdn.discordapp.com/icons/1486194979910062120/28b0ddee69d7a4d738c15b5181b66e3d.webp?size=80&quality=lossless"
+        icon_url="https://cdn.discordapp.com/icons/1486194979910062120/28b0ddee69d7a4d738c15b5181b66e3d.webp"
     )
 
     embed.set_thumbnail(
-        url="https://cdn.discordapp.com/icons/1486194979910062120/28b0ddee69d7a4d738c15b5181b66e3d.webp?size=80&quality=lossless"
+        url="https://cdn.discordapp.com/icons/1486194979910062120/28b0ddee69d7a4d738c15b5181b66e3d.webp"
     )
 
-    # ❗ שולח את הפאנל לחדר
-    await interaction.channel.send(
-        embed=embed,
-        view=VerifyView()
+    await interaction.channel.send(embed=embed, view=VerifyView())
+    await interaction.response.send_message("✅ הפאנל נשלח בהצלחה", ephemeral=True)
+
+# ================= MEMBER JOIN =================
+
+@bot.event
+async def on_member_join(member):
+    channel = bot.get_channel(WELCOME_CHANNEL_ID)
+    if not channel:
+        return
+
+    now = datetime.now().strftime("%d/%m/%Y | %H:%M")
+
+    embed = discord.Embed(title="ברוך הבא!", color=0xffe000)
+
+    embed.add_field(name="שם משתמש:", value=member.mention, inline=False)
+    embed.add_field(name="כניסה:", value=now, inline=False)
+
+    embed.set_thumbnail(url=member.display_avatar.url)
+
+    embed.set_footer(
+        text="שוויוניזם בע\"מ",
+        icon_url=member.guild.icon.url if member.guild.icon else None
     )
 
-    # ✅ מחזיר תשובה רק למי שהפעיל
-    await interaction.response.send_message(
-        "✅ הפאנל נשלח בהצלחה",
-        ephemeral=True
+    await channel.send(embed=embed)
+
+# ================= MEMBER LEAVE =================
+
+@bot.event
+async def on_member_remove(member):
+    channel = bot.get_channel(WELCOME_CHANNEL_ID)
+    if not channel:
+        return
+
+    now = datetime.now().strftime("%d/%m/%Y | %H:%M")
+
+    embed = discord.Embed(title="להתראות 😢", color=0xff0000)
+
+    embed.add_field(name="שם משתמש:", value=member.mention, inline=False)
+    embed.add_field(name="יציאה:", value=now, inline=False)
+
+    embed.set_thumbnail(url=member.display_avatar.url)
+
+    embed.set_footer(
+        text="שוויוניזם בע\"מ",
+        icon_url=member.guild.icon.url if member.guild.icon else None
     )
+
+    await channel.send(embed=embed)
 
 # ================= READY =================
 
@@ -110,6 +155,7 @@ async def verifypanel(interaction: discord.Interaction):
 async def on_ready():
     await tree.sync()
     bot.add_view(VerifyView())
+    update_status.start()
     print(f"Logged in as {bot.user}")
 
 # ================= RUN =================
