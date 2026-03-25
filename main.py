@@ -69,6 +69,14 @@ class VerifyView(discord.ui.View):
 @tree.command(name="verifypanel", description="יוצר פאנל אימות")
 async def verifypanel(interaction: discord.Interaction):
 
+    # ✅ רק אדמין
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "❌ רק אדמין יכול להשתמש בזה",
+            ephemeral=True
+        )
+        return
+
     embed = discord.Embed(
         title="מערכת אימות 🔐",
         description="על מנת לראות את חדרי השרת אנא לחץ על הכפתור למטה בשביל לאמת את עצמך",
@@ -84,9 +92,16 @@ async def verifypanel(interaction: discord.Interaction):
         url="https://cdn.discordapp.com/icons/1486194979910062120/28b0ddee69d7a4d738c15b5181b66e3d.webp?size=80&quality=lossless"
     )
 
-    await interaction.response.send_message(
+    # ❗ שולח את הפאנל לחדר
+    await interaction.channel.send(
         embed=embed,
         view=VerifyView()
+    )
+
+    # ✅ מחזיר תשובה רק למי שהפעיל
+    await interaction.response.send_message(
+        "✅ הפאנל נשלח בהצלחה",
+        ephemeral=True
     )
 
 # ================= READY =================
